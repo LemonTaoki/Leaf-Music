@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<title>Music Room</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #0f0f14; color: #eee; text-align: center;
+    margin: 0; padding: 24px 16px;
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+  }
+  #title { font-size: 1.3em; margin-bottom: 16px; font-weight: 600; }
+  audio { width: 100%; max-width: 420px; margin-top: 16px; }
+  #status { margin-top: 10px; color: #9aa; font-size: 0.95em; }
+  #queue { text-align: left; max-width: 420px; margin: 24px auto 0; background: #1b1b24; padding: 8px 14px; border-radius: 10px; }
+  .track { padding: 8px 4px; border-bottom: 1px solid #2a2a35; font-size: 0.95em; }
+  .track:last-child { border-bottom: none; }
+  .current { color: #4caf50; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div id="title">🎵 Loading room...</div>
+  <audio id="player" controls></audio>
+  <div id="status">Connecting...</div>
+  <div id="queue"></div>
+
+<script>
+const token = window.location.pathname.split("/").pop();
+const player = document.getElementById("player");
+const titleEl = document.getElementById("title");
+const statusEl = document.getElementById("status");
+const queueEl = document.getElementById("queue");
+
+let currentUrl = null;
+
+function applyState(state) {
+  titleEl.textContent = state.group_title ? `🎵 ${state.group_title}` : "🎵 Music Room";
+  const song = state.queue[state.current_index];
+
+  if (song) {
+    if (currentUrl !== song.url) {
+      currentUrl = song.url;
+      player.src = song.url;
+    }
+    player.volume = (state.volume ?? 100) / 100;
+    const drift = Math.abs(player.currentTime - state.position);
+    if (drift > 1.5) player.currentTime = state.position;
+
+    if (state.is_playing) player.play().catch(() => {});
+    else player.pause();
+
+    statusEl.textContent = state.is_playing ? `▶️ Playing: ${song.title}` : `⏸ Paused: ${song.title}`;
+  } else {
+    player.pause();
+    statusEl.textContent = "Queue khaali hai. Telegram group me /play use karo.";
+  }
+
+  queueEl.innerHTML = state.queue.map((s, i) =>
+    `<div class="track ${i === state.current_index ? "current" : ""}">${i + 1}. ${s.title}</div>`
+  ).join("");
+}
+
+const proto = window.location.protocol === "https:" ? "wss" : "ws";
+const ws = new WebSocket(`${proto}://${window.location.host}/ws/${token}`);
+
+ws.onmessage = (ev) => {
+  const data = JSON.parse(ev.data);
+  if (data.type === "state") applyState(data);
+};
+ws.onopen = () => { statusEl.textContent = "Connected ✅"; };
+ws.onclose = () => { statusEl.textContent = "Disconnected ❌"; };
+
+// Initial fetch in case the first websocket message is missed
+fetch(`/api/room/${token}/state`).then(r => r.json()).then(applyState).catch(() => {});
+</script>
+</body>
+</html>
